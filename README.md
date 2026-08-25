@@ -1,6 +1,6 @@
 # Daily Pulse
 
-Standalone teacher app for daily student check-ins, extracted from
+Standalone teacher and administrator app for daily student check-ins, extracted from
 [MAC-Walkthrough](../../../Projects/01-IU29/MAC-Walkthrough)'s Daily Pulse
 feature. Plain HTML/CSS/JS — no build step, no framework, no bundler.
 
@@ -37,8 +37,21 @@ npx vercel --prod         # production deploy
 - `auth.js` — MSAL + IEP_Users2 authorization (extracted from source)
 - `graph.js` — Microsoft Graph/SharePoint transport + Daily Pulse save (extracted + adapted)
 - `roster.js` — live student roster provider + the 7 Daily Pulse focus-area scales (extracted)
+- `access.js` — role, effective-teacher, roster-scope, and source-compatible payload helpers
 - `data.js` — local resilience/history layer (adapted)
 - `demo.js` — Demo Mode fixtures + fake save (new)
 - `app.js` — status/entry screens, state, submit orchestration (extracted UI logic, restructured flow)
 - `styles.css` — new stylesheet
 - `manifest.webmanifest`, `sw.js`, `icons/` — PWA layer (new)
+- `tests/` — authorization, administrator switching, payload, and duplicate-protection regression tests
+
+Teachers automatically receive their own eligible roster. Active administrators
+choose a teacher from the live eligible roster directory before entering the same
+Daily Pulse workflow; the selected teacher scopes the roster and `Teacher` record
+field while the actual administrator remains `Submitted By`.
+
+## Test
+
+```bash
+npm test
+```

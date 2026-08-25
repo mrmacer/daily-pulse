@@ -1,4 +1,4 @@
-/* ── Daily Pulse — standalone teacher app ────────────────────────────────
+/* ── Daily Pulse — standalone teacher + administrator app ────────────────
  * Orchestrates auth → authorization → roster → today's-completion →
  * status screen → sequential entry screen → submit. UI/scale/submit-payload
  * logic is extracted from MAC-Walkthrough app.js (renderPulse and friends,
@@ -40,9 +40,12 @@ function showToast(msg, kind = "success") {
 
 const APP = {
   demoMode:        false,
-  screen:          "loading", // loading | denied | error | status | entry | complete
-  currentUser:     null,      // { id, name, teacherName, email }
-  roster:          [],        // eligible students for this teacher
+  screen:          "loading", // loading | denied | error | teacher-select | status | entry | complete
+  currentUser:     null,      // actual signed-in actor { id, name, email, role, isAdmin }
+  effectiveTeacher:null,      // teacher whose roster/record Teacher value is in use
+  teacherDirectory: [],       // live identities derived from eligible roster rows
+  pendingTeacherName: "",
+  roster:          [],        // eligible students for effectiveTeacher
   completedToday:  new Set(),
   todayEntries:    [],        // for the read-only "Today's Submissions" list
   draft:           null,
@@ -55,6 +58,7 @@ const APP = {
     if (this.demoMode) {
       document.getElementById("demoBanner")?.classList.remove("hidden");
       this.currentUser = DEMO.currentUser();
+      this.effectiveTeacher = DAILY_PULSE_ACCESS.teacherIdentity(this.currentUser.teacherName || this.currentUser.name);
       await this._loadRosterAndStatus();
       return;
     }
@@ -82,16 +86,19 @@ const APP = {
       return;
     }
 
-    // Daily Pulse is a teacher tool — see docs/daily-pulse-extraction-
-    // report.md "Teacher Identification" for why administrators are
-    // pointed to MAC-Walkthrough instead of being let in here.
-    if (!AUTH.isTeacher) {
+    if (!AUTH.isDailyPulseAuthorized) {
       this.screen = "denied";
       this._render();
       return;
     }
 
-    this.currentUser = this._resolveTeacherIdentity();
+    this.currentUser = this._resolveAuthenticatedIdentity();
+    if (AUTH.isAdmin) {
+      await this._prepareAdminTeacherSelection();
+      return;
+    }
+
+    this.effectiveTeacher = DAILY_PULSE_ACCESS.effectiveTeacherForActor(this.currentUser);
     await this._loadRosterAndStatus();
   },
 
@@ -125,19 +132,61 @@ const APP = {
     });
   },
 
-  // Live/general identity path only (extracted from MAC-Walkthrough
-  // app.js:379-389 fallback branch) — the hardcoded 2-teacher
-  // TEACHER_IDENTITIES dict and admin "view as teacher" override are
-  // intentionally not extracted. See docs/daily-pulse-source-audit.md §7,
-  // §26.
-  _resolveTeacherIdentity() {
-    const name = AUTH.pilotUser?.Name || AUTH.displayName || "";
-    return {
-      id:          AUTH.pilotUserId || slugifyTeacherId(name),
-      name,
-      teacherName: name,
-      email:       AUTH.account?.username || ""
-    };
+  // The actor is always the authenticated IEP_Users2 identity. For a
+  // teacher, it also supplies effectiveTeacher automatically. For an admin,
+  // it remains the Submitted By identity while roster ownership comes from
+  // an explicit teacher selection.
+  _resolveAuthenticatedIdentity() {
+    return DAILY_PULSE_ACCESS.resolveActor(AUTH);
+  },
+
+  async _prepareAdminTeacherSelection() {
+    this._showScreen("loading");
+    try {
+      await STUDENT_ROSTER.refresh();
+      if (STUDENT_ROSTER.error) throw new Error(STUDENT_ROSTER.error);
+      this.teacherDirectory = STUDENT_ROSTER.getDailyPulseTeachers();
+      this._resetTeacherContext();
+      this.screen = "teacher-select";
+      this._render();
+    } catch (err) {
+      console.error("Failed to load Daily Pulse teacher directory:", err.message || String(err));
+      this._showError("Could not load the Daily Pulse teacher directory. Please refresh or contact an administrator.");
+    }
+  },
+
+  _resetTeacherContext() {
+    this.effectiveTeacher = null;
+    this.pendingTeacherName = "";
+    this.roster = [];
+    this.completedToday = new Set();
+    this.todayEntries = [];
+    this.draft = null;
+  },
+
+  async selectAdminTeacher(teacherName) {
+    if (!this.currentUser?.isAdmin) return false;
+    const target = String(teacherName || "").trim().toLowerCase();
+    const teacher = this.teacherDirectory.find(item => item.teacherName.toLowerCase() === target);
+    if (!teacher) return false;
+
+    // Switching contexts always discards prior teacher-specific completion
+    // and draft state before the next roster is loaded.
+    this._resetTeacherContext();
+    this.effectiveTeacher = { ...teacher };
+    await this._loadRosterAndStatus();
+    return true;
+  },
+
+  chooseAnotherTeacher() {
+    if (!this.currentUser?.isAdmin) return;
+    if (DAILY_PULSE_ACCESS.hasMeaningfulDraft(this.draft) &&
+        !window.confirm("This student has unsaved Daily Pulse information. Choose another teacher and discard it?")) {
+      return;
+    }
+    this._resetTeacherContext();
+    this.screen = "teacher-select";
+    this._render();
   },
 
   async _loadRosterAndStatus() {
@@ -146,9 +195,9 @@ const APP = {
       if (this.demoMode) {
         this.roster = DEMO.getRoster().filter(s => s.active && s.dailyPulseEnabled);
       } else {
-        await STUDENT_ROSTER.refresh();
+        if (!STUDENT_ROSTER.loaded) await STUDENT_ROSTER.refresh();
         if (STUDENT_ROSTER.error) throw new Error(STUDENT_ROSTER.error);
-        this.roster = STUDENT_ROSTER.getDailyPulseForTeacher(this.currentUser.teacherName);
+        this.roster = STUDENT_ROSTER.getDailyPulseForTeacher(this.effectiveTeacher?.teacherName);
       }
 
       const date = todayStr();
@@ -156,7 +205,7 @@ const APP = {
         this.completedToday = DEMO.getTodayCompleted(date);
         this.todayEntries   = DEMO.getTodayEntries(date);
       } else {
-        const entries = await GRAPH.getTodayDailyPulseEntries(this.currentUser.teacherName, date);
+        const entries = await GRAPH.getTodayDailyPulseEntries(this.effectiveTeacher?.teacherName, date);
         this.completedToday = new Set(entries.map(e => e["Student"]));
         this.todayEntries   = entries.map(e => ({
           student: e["Student"], status: e["Status"], attendanceStatus: e["Attendance Status"]
@@ -274,25 +323,12 @@ const APP = {
   },
 
   _buildPayload(draft, attendanceStatus) {
-    const present = attendanceStatus === "present";
-    const statusLabel = present
-      ? ({ great: "Great Day", struggles: "Some Struggles", concern: "Significant Concern" }[draft.overallStatus] || draft.overallStatus)
-      : "";
-    return {
-      RecordID:          draft.recordId,
-      Date:              draft.date,
-      Teacher:           this.currentUser.teacherName,
-      Student:           draft.studentName,
-      AttendanceStatus:  attendanceStatus,
-      Present:           present,
-      Status:            statusLabel,
-      Categories:        present ? [...draft.selectedCategories] : [],
-      CategoryResponses: present ? structuredClone(draft.categoryResponses) : {},
-      QuickNote:         present ? (draft.quickNote || "") : "",
-      SubmittedBy:       this.currentUser.name,
-      SubmittedByEmail:  this.currentUser.email,
-      SubmittedAt:       new Date().toISOString()
-    };
+    return DAILY_PULSE_ACCESS.buildPayload(
+      draft,
+      attendanceStatus,
+      this.effectiveTeacher,
+      this.currentUser
+    );
   },
 
   // Local copy first (resilience layer), then the authoritative SharePoint
@@ -319,7 +355,7 @@ const APP = {
       categories:        payload.Categories,
       categoryResponses: payload.CategoryResponses,
       note:              payload.QuickNote,
-      teacherName:       this.currentUser.teacherName,
+      teacherName:       this.effectiveTeacher?.teacherName || "",
       submittedById:     this.currentUser.id,
       submittedByName:   this.currentUser.name
     });
@@ -392,9 +428,14 @@ const APP = {
     }
     if (this.screen === "denied") {
       main.innerHTML = `<div class="status-card">
-        <p>Daily Pulse is a teacher tool. Your account role isn't set up as Teacher in IEP Skook.</p>
-        <p class="muted">Administrators: use MAC-Walkthrough for the full toolset.</p>
+        <p>Your account role is not authorized for Daily Pulse.</p>
+        <p class="muted">An active Teacher or Administrator role in IEP Skook is required.</p>
       </div>`;
+      return;
+    }
+    if (this.screen === "teacher-select") {
+      main.innerHTML = this._teacherSelectHtml();
+      this._bindTeacherSelectEvents(main);
       return;
     }
     if (this.screen === "status")   { main.innerHTML = this._statusHtml();   this._bindStatusEvents(main);   return; }
@@ -409,15 +450,15 @@ const APP = {
     const name      = (this.currentUser.name || "").split(" ")[0] || this.currentUser.name;
 
     if (total === 0) {
-      return `<div class="status-card">
+      return `${this._adminContextHtml()}<div class="status-card">
         <h1 class="status-title">Daily Pulse</h1>
         <p class="muted">${formatDateLong(todayStr())}</p>
-        <p class="empty-state">No Daily Pulse-enabled students are assigned to you right now.</p>
+        <p class="empty-state">No Daily Pulse-enabled students are assigned to this teacher right now.</p>
         <p class="muted small">Need this changed? Contact an administrator.</p>
       </div>`;
     }
 
-    return `<div class="status-card">
+    return `${this._adminContextHtml()}<div class="status-card">
       <h1 class="status-title">Daily Pulse</h1>
       <p class="status-greeting">${greetingWord()}, ${escHtml(name)}</p>
       <p class="muted">${formatDateLong(todayStr())}</p>
@@ -432,7 +473,7 @@ const APP = {
   },
 
   _completeHtml() {
-    return `<div class="status-card">
+    return `${this._adminContextHtml()}<div class="status-card">
       <div class="complete-icon">&#10003;</div>
       <h1 class="status-title">Daily Pulse Complete</h1>
       <p class="status-greeting">${this.roster.length} of ${this.roster.length} students submitted</p>
@@ -455,7 +496,94 @@ const APP = {
   },
 
   _bindStatusEvents(main) {
+    this._bindAdminContext(main);
     main.querySelector("#continueBtn")?.addEventListener("click", () => this.startOrContinue());
+  },
+
+  _teacherSelectHtml() {
+    const choices = this.teacherDirectory.map(teacher => `
+      <button type="button" class="teacher-choice" data-teacher="${escHtml(teacher.teacherName)}" aria-pressed="false">
+        ${escHtml(teacher.teacherName)}
+      </button>`).join("");
+    const empty = this.teacherDirectory.length === 0
+      ? `<p class="empty-state">No teachers currently have active, Daily Pulse-enabled students.</p>`
+      : "";
+
+    return `<div class="status-card teacher-select-card">
+      <h1 class="status-title">Daily Pulse</h1>
+      <p class="teacher-select-prompt">Completing Daily Pulse for:</p>
+      <label class="field-label" for="teacherSearch">Choose a teacher</label>
+      <input class="form-input teacher-search-input" id="teacherSearch" type="search"
+        placeholder="Search teacher directory" autocomplete="off">
+      <div class="teacher-choice-list" id="teacherChoiceList">${choices}</div>
+      <p class="muted small teacher-no-results hidden" id="teacherNoResults">No matching teachers.</p>
+      ${empty}
+      <div id="teacherSelectError" class="entry-error hidden"></div>
+      <button type="button" class="btn btn-primary btn-lg btn-full" id="teacherContinueBtn" disabled>Continue</button>
+    </div>`;
+  },
+
+  _bindTeacherSelectEvents(main) {
+    const input = main.querySelector("#teacherSearch");
+    const continueBtn = main.querySelector("#teacherContinueBtn");
+    const buttons = [...main.querySelectorAll(".teacher-choice")];
+    const noResults = main.querySelector("#teacherNoResults");
+
+    const select = teacherName => {
+      const exact = this.teacherDirectory.find(
+        teacher => teacher.teacherName.toLowerCase() === String(teacherName || "").trim().toLowerCase()
+      );
+      this.pendingTeacherName = exact?.teacherName || "";
+      buttons.forEach(button => {
+        const selected = button.dataset.teacher === this.pendingTeacherName;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+      });
+      if (continueBtn) continueBtn.disabled = !this.pendingTeacherName;
+    };
+
+    input?.addEventListener("input", () => {
+      const term = input.value.trim().toLowerCase();
+      let visible = 0;
+      buttons.forEach(button => {
+        const matches = button.dataset.teacher.toLowerCase().includes(term);
+        button.classList.toggle("hidden", !matches);
+        if (matches) visible += 1;
+      });
+      noResults?.classList.toggle("hidden", visible > 0 || buttons.length === 0);
+      select(input.value);
+    });
+
+    buttons.forEach(button => button.addEventListener("click", () => {
+      if (input) input.value = button.dataset.teacher;
+      select(button.dataset.teacher);
+    }));
+
+    continueBtn?.addEventListener("click", async () => {
+      continueBtn.disabled = true;
+      const selected = await this.selectAdminTeacher(this.pendingTeacherName);
+      if (!selected) {
+        const error = main.querySelector("#teacherSelectError");
+        if (error) {
+          error.textContent = "Please choose a teacher from the directory.";
+          error.classList.remove("hidden");
+        }
+        continueBtn.disabled = false;
+      }
+    });
+  },
+
+  _adminContextHtml() {
+    if (!this.currentUser?.isAdmin || !this.effectiveTeacher) return "";
+    return `<aside class="admin-context" aria-label="Administrator teacher context">
+      <span>Completing Daily Pulse for</span>
+      <strong>${escHtml(this.effectiveTeacher.teacherName)}</strong>
+      <button type="button" class="btn btn-secondary" id="chooseTeacherBtn">Choose Another Teacher</button>
+    </aside>`;
+  },
+
+  _bindAdminContext(main) {
+    main.querySelector("#chooseTeacherBtn")?.addEventListener("click", () => this.chooseAnotherTeacher());
   },
 
   _entryHtml() {
@@ -468,6 +596,7 @@ const APP = {
     const showAbsentConfirm = draft.attendanceStatus === "absent";
 
     return `
+      ${this._adminContextHtml()}
       <div class="entry-header">
         <button class="link-btn" id="backToStatusBtn">&larr; Status</button>
         <div class="entry-progress-text">Student ${num} of ${total}</div>
@@ -592,6 +721,7 @@ const APP = {
   },
 
   _bindEntryEvents(main) {
+    this._bindAdminContext(main);
     main.querySelector("#backToStatusBtn")?.addEventListener("click", () => this.backToStatus());
 
     main.querySelectorAll(".attendance-option").forEach(btn => {

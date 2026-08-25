@@ -1,6 +1,6 @@
 /* Daily Pulse — new stylesheet, adapted from MAC-Walkthrough's pulse/walk/
    form-card/btn rules (see docs/daily-pulse-source-audit.md #25),
-   simplified for a single-purpose teacher app: no sidebar, no admin nav,
+   simplified for a single-purpose Daily Pulse app: no sidebar or admin nav,
    larger touch targets, optimized for iPad/Chromebook/laptop first. */
 
 :root {
@@ -164,6 +164,50 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; }
 .today-submissions-list li:last-child { border-bottom: none; }
 .ts-student { font-weight: 600; }
 .ts-status { color: var(--color-muted); }
+
+/* ── Administrator teacher context ──────────────────────────────────── */
+.teacher-select-card { text-align: left; }
+.teacher-select-card .status-title { text-align: center; margin-bottom: 18px; }
+.teacher-select-prompt { margin: 0 0 18px; text-align: center; color: var(--color-muted); }
+.teacher-search-input { margin-bottom: 10px; min-height: var(--touch-min); }
+.teacher-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 310px;
+  overflow-y: auto;
+  padding: 2px;
+  margin-bottom: 14px;
+}
+.teacher-choice {
+  min-height: var(--touch-min);
+  padding: 11px 14px;
+  border: 2px solid var(--color-border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--color-text);
+  text-align: left;
+  font-weight: 600;
+  cursor: pointer;
+}
+.teacher-choice:hover { background: #f0f2f1; }
+.teacher-choice.is-selected { border-color: var(--color-primary); background: #eef7f1; }
+.teacher-no-results { margin: 8px 0 14px; }
+
+.admin-context {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 14px;
+  background: #eef7f1;
+  border: 1px solid #bed7c7;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.admin-context span { color: var(--color-muted); font-size: 0.88rem; }
+.admin-context strong { grid-column: 1; font-size: 1.08rem; }
+.admin-context .btn { grid-column: 2; grid-row: 1 / span 2; }
 
 /* ── Buttons ─────────────────────────────────────────────────────────── */
 .btn {
@@ -358,4 +402,6 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; }
 @media (max-width: 420px) {
   .option-cards { grid-template-columns: 1fr; }
   .status-counts { gap: 16px; }
+  .admin-context { grid-template-columns: 1fr; }
+  .admin-context .btn { grid-column: 1; grid-row: auto; margin-top: 10px; }
 }

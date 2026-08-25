@@ -101,6 +101,14 @@ const STUDENT_ROSTER = {
   // this specific teacher.
   getDailyPulseForTeacher(teacherName) {
     return this.getActive().filter(s => s.dailyPulseEnabled && this._matchesTeacher(s, teacherName));
+  },
+
+  // Administrator selector: exact teacher identities already attached to
+  // active, Daily-Pulse-enabled roster rows. This guarantees the selected
+  // value is the same normalized value used by roster filtering and never
+  // invents or hard-codes a teacher.
+  getDailyPulseTeachers() {
+    return DAILY_PULSE_ACCESS.eligibleTeachers(this._students);
   }
 };
 

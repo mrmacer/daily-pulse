@@ -1,6 +1,6 @@
 /* ── Authentication (extracted verbatim from MAC-Walkthrough auth.js) ───────
  * Same Entra app registration, same IEP_Users2 authorization contract, so
- * a teacher's existing organizational account works here with no separate
+ * an authorized user's existing organizational account works here with no separate
  * login system and no new secrets. See docs/daily-pulse-source-audit.md §5-6.
  *
  * redirectUri is window.location.origin (no path), so this works unchanged
@@ -140,5 +140,8 @@ const AUTH = {
   },
 
   get isAdmin()   { return normalizeUserRole(this.role) === "administrator"; },
-  get isTeacher() { return normalizeUserRole(this.role) === "teacher"; }
+  get isTeacher() { return normalizeUserRole(this.role) === "teacher"; },
+  get isDailyPulseAuthorized() {
+    return this.isAuthenticated && (this.isTeacher || this.isAdmin);
+  }
 };

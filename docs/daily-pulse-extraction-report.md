@@ -32,11 +32,10 @@ default-value behavior) — copied verbatim, PACE-only getters dropped.
 
 ## Adapted Modules
 
-- **Teacher identity** (`app.js` → `APP._resolveTeacherIdentity()`): kept
-  only the live/general fallback path that resolves a teacher purely from
-  the authenticated `IEP_Users2` record. Dropped the hardcoded 2-teacher
-  `TEACHER_IDENTITIES` dict and the admin "view as teacher" override — see
-  Reimplemented Logic.
+- **Effective teacher identity** (`access.js` and `app.js`): teachers resolve
+  directly from their authenticated `IEP_Users2` record. Administrators use
+  an explicit teacher selection derived from the live roster's eligible
+  teacher values. No hardcoded teacher identities are used.
 - **Today's-completion detection** (`graph.js` → `getTodayDailyPulseEntries()`):
   source computes this purely from local `localStorage`
   (`DB.getDailyPulses()`), which never leaves the browser it was written in.
@@ -61,7 +60,7 @@ default-value behavior) — copied verbatim, PACE-only getters dropped.
   demo-specific branches.
 - **PWA layer** (`manifest.webmanifest`, `sw.js`, `icons/`) — source has none
   to extract (no manifest link, no `sw.js`, no registration code in
-  `index.html`). Built new, with its own cache name (`daily-pulse-cache-v1`)
+  `index.html`). Built new, with its own cache name (`daily-pulse-cache-v2`)
   and an explicit network-only bypass for any Microsoft-owned domain.
 - **"First incomplete student" auto-selection** — source's dropdown-based
   picker does not auto-select on load, only after a submit (and even then
@@ -93,19 +92,23 @@ incomplete student → sequential entry screen (Present/Absent → day rating �
 optional focus areas → optional quick note → **Submit & Next**, or Absent →
 confirm → next) → repeats until none remain → completion screen. Reopening
 the app at any point re-derives status from the same backend query and never
-restarts a completed student.
+restarts a completed student. An authorized administrator first selects a
+teacher, uses the same status and entry flow, and can choose another teacher
+without signing out.
 
 ## Teacher Identification
 
-`AUTH.loadPilotUserFromSharePoint()` (unchanged) resolves the signed-in
-Microsoft account against `IEP_Users2`. `APP._resolveTeacherIdentity()` then
-builds `{ id, name, teacherName, email }` directly from that record —
-**only role `"teacher"` is admitted**; any other role (including
-`"administrator"`) sees a denial screen pointing to MAC-Walkthrough. This is
-a deliberate, documented product decision (source lets admins view all
-Daily-Pulse-enabled students unfiltered) made to keep this app strictly a
-teacher tool per the brief's "no admin clutter" requirement — easy to loosen
-later if an admin ever needs to submit through this app directly.
+`AUTH.loadPilotUserFromSharePoint()` resolves the signed-in Microsoft account
+against `IEP_Users2`. Active roles `"teacher"` and `"administrator"` are
+admitted; inactive users and every other role remain denied. Teachers become
+their own effective teacher automatically. Administrators must select an
+effective teacher from the distinct teacher names present on active,
+Daily-Pulse-enabled roster rows before student data loads.
+
+The signed-in actor and effective teacher are intentionally separate. The
+effective teacher controls roster filtering, completion lookup, and the saved
+`Teacher` field. The signed-in actor controls `Submitted By` (and the in-memory
+`SubmittedByEmail` value), preserving source reporting semantics.
 
 ## Student Filtering
 
@@ -129,7 +132,7 @@ Identical to source (`GRAPH.saveDailyPulse`, list `IEP_Daily_Pulse`):
 |---|---|
 | Record ID | stable per-draft UUID (`pulse-<uuid>`), duplicate-detection key |
 | Date | today, `YYYY-MM-DD` |
-| Teacher | roster student's `Teacher` value |
+| Teacher | effective teacher (authenticated teacher or administrator selection) |
 | Student | selected student's display name |
 | Attendance Status | `"Present"` / `"Absent"` |
 | Present | boolean |
@@ -138,7 +141,7 @@ Identical to source (`GRAPH.saveDailyPulse`, list `IEP_Daily_Pulse`):
 | Category Responses | `JSON.stringify(...)` of all focus-area answers |
 | Academic Progress / Behavior / Communication / Social Skills / Self-Regulation / Transition / IEP Goal Rating | each scale's `rating`, else `""` |
 | Quick Note | free text, `""` if absent |
-| Submitted By / Submitted At | current teacher's name / ISO timestamp |
+| Submitted By / Submitted At | actual signed-in user's name / ISO timestamp |
 
 ## SharePoint Compatibility
 
@@ -180,7 +183,7 @@ relative/flex/grid rules validated at both tested sizes.
 
 ## PWA / Cache Isolation
 
-`sw.js` uses its own cache name (`daily-pulse-cache-v1`), only ever
+`sw.js` uses its own cache name (`daily-pulse-cache-v2`), only ever
 `caches.match`/`caches.put`s same-origin GET requests, and explicitly bypasses
 (never intercepts) any request to a `graph.microsoft.com`,
 `login.microsoftonline.com`, or `microsoftonline.com` host. MAC-Walkthrough
@@ -227,9 +230,9 @@ Entra** — this needs to be done by a tenant administrator.
   corrupted the rest of the stylesheet parse, so no CSS custom properties
   (colors, etc.) applied. Both are fixed in the current files and verified
   visually.
-- Authorization is teacher-only (see Teacher Identification) — an
-  administrator's account can sign in (MSAL/`IEP_Users2` lookup succeeds)
-  but sees a denial screen rather than any Daily Pulse content.
+- The administrator directory is intentionally limited to teacher values that
+  currently have at least one active, Daily-Pulse-enabled roster row. It is not
+  a teacher-management directory and does not invent or hardcode names.
 - `getTodayDailyPulseEntries` reads the whole `IEP_Daily_Pulse` list
   (paginated) and filters client-side, same pattern as source's admin
   history readers — fine at current record volumes; if that list grows very

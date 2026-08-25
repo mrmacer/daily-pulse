@@ -5,7 +5,7 @@
  * network-only, matching source's live-data-only behavior for Daily Pulse.
  */
 
-const CACHE_NAME = "daily-pulse-cache-v1";
+const CACHE_NAME = "daily-pulse-cache-v2";
 
 const APP_SHELL = [
   "./",
@@ -16,6 +16,7 @@ const APP_SHELL = [
   "auth.js",
   "data.js",
   "roster.js",
+  "access.js",
   "demo.js",
   "app.js",
   "manifest.webmanifest",

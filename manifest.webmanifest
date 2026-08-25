@@ -1,7 +1,7 @@
 {
   "name": "Daily Pulse",
   "short_name": "Daily Pulse",
-  "description": "Quick daily student check-ins for IU29 teachers.",
+  "description": "Quick daily student check-ins for IU29 teachers and administrators.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
