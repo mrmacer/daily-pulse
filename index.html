@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daily Pulse</title>
+<meta name="theme-color" content="#2f6f4f">
+<meta name="description" content="Daily Pulse — quick daily student check-ins for IU29 teachers.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Daily Pulse">
+<link rel="stylesheet" href="styles.css">
+<!-- MSAL is intentionally NOT loaded here. It is injected by app.js only on
+     the real-auth path, so Demo Mode never fetches a single byte from a
+     Microsoft-owned domain. See docs/demo-verification.md. -->
+</head>
+<body>
+
+  <div id="demoBanner" class="demo-banner hidden">
+    DEMO MODE — no real students, nothing leaves this device.
+    <button id="exitDemoBtn" class="link-btn">Exit demo</button>
+  </div>
+
+  <header class="app-topbar">
+    <div class="app-topbar-title">
+      <img src="assets/iu29-logo.png" alt="" class="app-logo" onerror="this.style.display='none'">
+      <span>Daily Pulse</span>
+    </div>
+    <button id="signOutBtn" class="link-btn hidden-until-signed-in">Sign out</button>
+  </header>
+
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <img src="assets/iu29-logo.png" alt="IU29" class="login-logo" onerror="this.style.display='none'">
+      <h1>Daily Pulse</h1>
+      <p class="muted">Sign in with your IU29 Microsoft account to record today's check-ins.</p>
+      <button id="loginBtn" class="btn btn-primary btn-lg btn-full">Sign in with Microsoft</button>
+      <button id="demoModeBtn" class="btn btn-secondary btn-lg btn-full">Try Demo Mode</button>
+      <p id="loginError" class="error-text hidden"></p>
+    </div>
+  </div>
+
+  <main id="main" class="app-main"></main>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="config.js"></script>
+  <script src="graph.js"></script>
+  <script src="auth.js"></script>
+  <script src="data.js"></script>
+  <script src="roster.js"></script>
+  <script src="demo.js"></script>
+  <script src="app.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(err => console.warn("SW registration failed:", err));
+      });
+    }
+    // Show "Sign out" only once we actually have a signed-in/demo session.
+    const _origRender = APP._render.bind(APP);
+    APP._render = function () {
+      document.getElementById("signOutBtn")?.classList.toggle(
+        "hidden-until-signed-in",
+        !(this.demoMode || AUTH.account)
+      );
+      _origRender();
+    };
+  </script>
+</body>
+</html>
