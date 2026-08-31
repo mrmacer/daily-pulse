@@ -113,6 +113,23 @@ button, input, textarea, select { font-family: inherit; font-size: inherit; }
   font-size: 0.92rem;
 }
 
+/* Safe, non-sensitive support/debugging diagnostic — deliberately more
+   subtle than .error-text so the human-friendly message above it stays
+   the primary thing a signed-in-but-denied user reads. See
+   loginDiagnosticHtml() in app.js. */
+.login-diagnostic {
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  text-align: left;
+}
+.login-diagnostic .diagnostic-line {
+  margin: 2px 0;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
 /* ── Main / cards ────────────────────────────────────────────────────── */
 .app-main {
   max-width: 640px;

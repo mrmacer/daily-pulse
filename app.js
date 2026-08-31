@@ -13,6 +13,30 @@ function escHtml(str) {
   }[c]));
 }
 
+// Safe, non-sensitive support/debugging diagnostic block, shown alongside
+// a login/authorization denial. Uses only AUTH state already held in
+// memory — makes no additional Graph calls. Never shows anything beyond
+// the signed-in user's own name/username (already visible to them in
+// their own Microsoft account) plus a found/not-found summary: no tokens,
+// no Graph payloads, no SharePoint IDs, no student or roster data.
+// identityFound: "Not Found" | "Found". appPermission (optional):
+// e.g. "Denied" — only passed once an app-permission check has actually
+// run (identity already resolved), per the "IEP_Users2 identity failure
+// is the priority case" instruction.
+function loginDiagnosticHtml({ identityFound, appPermission } = {}) {
+  const signedInAs = escHtml(AUTH.account?.name || AUTH.displayName || "(name unavailable)");
+  const accountUsername = escHtml(AUTH.account?.username || "(unavailable)");
+  const permissionLine = appPermission
+    ? `<p class="diagnostic-line">App permission: <strong>${escHtml(appPermission)}</strong></p>`
+    : "";
+  return `<div class="login-diagnostic">
+    <p class="diagnostic-line">Signed in as: <strong>${signedInAs}</strong></p>
+    <p class="diagnostic-line">Account: <strong>${accountUsername}</strong></p>
+    <p class="diagnostic-line">Identity record: <strong>${escHtml(identityFound || "")}</strong></p>
+    ${permissionLine}
+  </div>`;
+}
+
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -410,6 +434,22 @@ const APP = {
     document.getElementById("loginScreen")?.classList.remove("hidden");
     const el = document.getElementById("loginError");
     if (el) { el.textContent = msg; el.classList.remove("hidden"); }
+    this._renderLoginDiagnostic();
+  },
+
+  // Only ever shown once Microsoft sign-in itself succeeded (AUTH.account
+  // set) — hidden for the earlier "authentication service failed to load"
+  // case, where there's no account yet to report. See loginDiagnosticHtml().
+  _renderLoginDiagnostic() {
+    const el = document.getElementById("loginDiagnostic");
+    if (!el) return;
+    if (!AUTH.account) {
+      el.classList.add("hidden");
+      el.innerHTML = "";
+      return;
+    }
+    el.innerHTML = loginDiagnosticHtml({ identityFound: AUTH.isUnauthorized ? "Not Found" : "Found" });
+    el.classList.remove("hidden");
   },
   _showEntryError(msg) {
     const el = document.getElementById("entryError");
@@ -462,11 +502,13 @@ const APP = {
   // stays available for switching accounts — no duplicate control needed
   // here. Never renders roster/student data behind this screen.
   _accessDeniedHtml() {
-    const signedInAs = escHtml(AUTH.displayName || AUTH.account?.username || "");
+    // Reached only after the IEP_Users2 identity lookup already succeeded
+    // (see init()) — so the diagnostic always reports Identity record:
+    // Found here; the app-permission check is what failed.
     return `<div class="status-card access-denied">
       <h2>IEP Skook</h2>
       <p>You are signed in, but your account does not currently have access to this application.</p>
-      <p class="muted">Signed in as:<br><strong>${signedInAs}</strong></p>
+      ${loginDiagnosticHtml({ identityFound: "Found", appPermission: "Denied" })}
       <p class="muted">Contact an IEP Skook administrator if you believe this is incorrect.</p>
     </div>`;
   },
