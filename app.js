@@ -86,7 +86,14 @@ const APP = {
       return;
     }
 
-    if (!AUTH.isDailyPulseAuthorized) {
+    // PATCH B: authorization now runs through IEP_App_Users (email-keyed),
+    // not the legacy IEP_Users2 Teacher/Administrator role check alone. See
+    // access.js#resolveDailyPulseAccess and iep-app-users.js for the
+    // migration-mode contract (no row -> legacy fallback; lookup error ->
+    // always denied).
+    const appUsersOutcome = await this._resolveAppUsersOutcome();
+    const decision = DAILY_PULSE_ACCESS.resolveDailyPulseAccess(AUTH.role, appUsersOutcome);
+    if (!decision.allowed) {
       this.screen = "denied";
       this._render();
       return;
@@ -98,8 +105,18 @@ const APP = {
       return;
     }
 
-    this.effectiveTeacher = DAILY_PULSE_ACCESS.effectiveTeacherForActor(this.currentUser);
+    const teacherName = DAILY_PULSE_ACCESS.resolveTeacherRosterKey(this.currentUser, appUsersOutcome);
+    this.effectiveTeacher = DAILY_PULSE_ACCESS.teacherIdentity(teacherName);
     await this._loadRosterAndStatus();
+  },
+
+  // Looks up IEP_App_Users by the signed-in email and normalizes the result
+  // into the { found | failed } shape resolveDailyPulseAccess() expects —
+  // see APP_USERS in iep-app-users.js for the reader itself.
+  async _resolveAppUsersOutcome() {
+    const row = await APP_USERS.resolve(AUTH.account?.username || "");
+    if (APP_USERS.lookupError) return { failed: true };
+    return row ? { found: true, row } : { found: false };
   },
 
   // Loaded lazily, only on the real-auth path — never in Demo Mode, so
@@ -427,10 +444,7 @@ const APP = {
       return;
     }
     if (this.screen === "denied") {
-      main.innerHTML = `<div class="status-card">
-        <p>Your account role is not authorized for Daily Pulse.</p>
-        <p class="muted">An active Teacher or Administrator role in IEP Skook is required.</p>
-      </div>`;
+      main.innerHTML = this._accessDeniedHtml();
       return;
     }
     if (this.screen === "teacher-select") {
@@ -441,6 +455,20 @@ const APP = {
     if (this.screen === "status")   { main.innerHTML = this._statusHtml();   this._bindStatusEvents(main);   return; }
     if (this.screen === "complete") { main.innerHTML = this._completeHtml(); this._bindStatusEvents(main);   return; }
     if (this.screen === "entry")    { main.innerHTML = this._entryHtml();    this._bindEntryEvents(main);    return; }
+  },
+
+  // Consistent IEP Skook access-denied template (same wording used across
+  // the other three apps in the suite). The header's "Sign out" button
+  // stays available for switching accounts — no duplicate control needed
+  // here. Never renders roster/student data behind this screen.
+  _accessDeniedHtml() {
+    const signedInAs = escHtml(AUTH.displayName || AUTH.account?.username || "");
+    return `<div class="status-card access-denied">
+      <h2>IEP Skook</h2>
+      <p>You are signed in, but your account does not currently have access to this application.</p>
+      <p class="muted">Signed in as:<br><strong>${signedInAs}</strong></p>
+      <p class="muted">Contact an IEP Skook administrator if you believe this is incorrect.</p>
+    </div>`;
   },
 
   _statusHtml() {

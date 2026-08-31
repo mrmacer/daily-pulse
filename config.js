@@ -20,6 +20,11 @@ const CONFIG = {
   // Same authorization list MAC-Walkthrough uses.
   USERS_LIST: "IEP_Users2",
 
+  // PATCH A: new cross-app permission registry (Daily Pulse/PACE/Walkthrough/
+  // Admin Panel flags + Teacher/Classroom), separate from IEP_Users2. See
+  // iep-app-users.js.
+  APP_USERS_LIST: "IEP_App_Users",
+
   // localStorage keys — namespaced distinctly from MAC-Walkthrough's
   // "skookWalkthrough_*" keys so the two apps' local state never collides,
   // even if someone ever runs both against the same origin during dev.

@@ -45,6 +45,53 @@ const DAILY_PULSE_ACCESS = {
     return this.teacherIdentity(actor.name);
   },
 
+  /* ── PATCH B: IEP_App_Users-based authorization ────────────────────────
+   * Combines the existing IEP_Users2 role gate (isSupportedRole, above)
+   * with the new IEP_App_Users "Daily Pulse" flag. AUTH.isUnauthorized
+   * (no active IEP_Users2 record at all) is still checked first by app.js,
+   * unchanged — this only decides the ADDITIONAL app-permission gate.
+   *
+   * appUsersOutcome is one of:
+   *   { found: true, row }  — a matching IEP_App_Users row exists; its
+   *                           "Daily Pulse" flag is authoritative, even if
+   *                           it disagrees with the legacy role check.
+   *   { found: false }      — the lookup succeeded but no row matched this
+   *                           email. MIGRATION MODE (see iep-app-users.js):
+   *                           fall back to the existing Teacher/Admin role
+   *                           check so nobody is locked out before
+   *                           IEP_App_Users is populated.
+   *   { failed: true }      — the lookup itself errored (Graph/schema/
+   *                           network). Always denied — a failed lookup is
+   *                           never treated as "no row found."
+   */
+  resolveDailyPulseAccess(role, appUsersOutcome) {
+    if (appUsersOutcome?.failed) {
+      return { allowed: false, reason: "app-users-lookup-failed" };
+    }
+    if (appUsersOutcome?.found) {
+      const allowed = normalizeAppUsersBoolean(appUsersOutcome.row["Daily Pulse"]);
+      return { allowed, reason: allowed ? "app-users-permission" : "app-users-denied" };
+    }
+    if (typeof ACCESS_MODEL_CONFIG !== "undefined" && ACCESS_MODEL_CONFIG.ENFORCE_APP_USERS) {
+      return { allowed: false, reason: "enforced-no-row" };
+    }
+    const allowed = this.isSupportedRole(role);
+    return { allowed, reason: allowed ? "legacy-fallback" : "legacy-denied" };
+  },
+
+  // Teacher/Classroom (IEP_App_Users) is preferred when a matching row
+  // exists and it's populated — same literal string IEP_Students_2026_27
+  // uses for Teacher, no new teacher ID invented. Otherwise falls back to
+  // the signed-in person's own IEP_Users2 display name, exactly as before
+  // PATCH B. Administrators keep using the existing teacher-selection UI
+  // (app.js branches on AUTH.isAdmin before ever calling this).
+  resolveTeacherRosterKey(actor, appUsersOutcome) {
+    const fromAppUsers = appUsersOutcome?.found
+      ? String(appUsersOutcome.row["Teacher/Classroom"] || "").trim()
+      : "";
+    return fromAppUsers || actor?.name || "";
+  },
+
   eligibleTeachers(students) {
     const seen = new Set();
     return (students || [])
